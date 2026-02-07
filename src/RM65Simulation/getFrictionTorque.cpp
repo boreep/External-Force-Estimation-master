@@ -1,8 +1,8 @@
 //
-// File: getFriction.cpp
+// File: getFrictionTorque.cpp
 //
 // MATLAB Coder version            : 5.5
-// C/C++ source code generated on  : 03-Feb-2026 17:43:16
+// C/C++ source code generated on  : 06-Feb-2026 10:30:29
 //
 
 // Include Files
@@ -25,7 +25,8 @@
 // Return Type  : void
 //
 namespace RM65Lib {
-void getFrictionTorque(const double qd[6], const double pi_fr[18], double tau_f[6])
+void getFrictionTorque(const double qd[6], const double pi_fr[18],
+                       double tau_f[6])
 {
   //  假设每关节 3 个参数 (粘性 Fv, 库伦 Fc, 偏置 Off)
   //  对应 frictionRegressor.m 的逻辑: [qd, sign(qd), 1]
@@ -45,7 +46,7 @@ void getFrictionTorque(const double qd[6], const double pi_fr[18], double tau_f[
 } // namespace RM65Lib
 
 //
-// File trailer for getFriction.cpp
+// File trailer for getFrictionTorque.cpp
 //
 // [EOF]
 //

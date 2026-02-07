@@ -81,3 +81,25 @@ target_include_directories(RM65_Test PUBLIC
 
 # 链接库
 target_link_libraries(RM65_Test PUBLIC Boost::program_options gnuplot_iostream)
+
+# =========================================================
+# 3. 新增 RM65 验证程序 (C++ Direct Verification)
+# =========================================================
+
+set(RM65_VERIFICATION_SOURCES
+    src/RM65_Verification.cpp
+    ${RM65_DIR_SRCS}       # 包含 RM65Simulation 下的所有 cpp
+    ${OBSERVER_LIB_SOURCES} # 包含 ExternalObserverRnea 等基类
+)
+
+add_executable(RM65_Verification ${RM65_VERIFICATION_SOURCES})
+
+target_include_directories(RM65_Verification PUBLIC 
+    ${ExtObserverLibInclude} 
+    ${RM65_INCLUDE_DIR}
+    PUBLIC include 
+    PUBLIC ${EIGEN3_INCLUDE_DIRS}
+)
+
+# 链接 boost 和 gnuplot
+target_link_libraries(RM65_Verification PUBLIC Boost::program_options gnuplot_iostream)

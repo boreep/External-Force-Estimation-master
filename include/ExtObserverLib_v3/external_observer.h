@@ -8,7 +8,7 @@
 #include <eigen3/Eigen/Geometry>
 
 /** @brief 重力常量，正负号待定 */
-#define GRAVITY -9.81
+#define GRAVITY 9.81
 
 /** @brief 动态矩阵和向量的类型别名，方面调用 */
 typedef Eigen::MatrixXd Matrix;

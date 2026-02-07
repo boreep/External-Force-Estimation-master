@@ -22,6 +22,9 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
   } else if (paramType == "big") {
     // 偏大
     k << 30, 12, 15, 30, 60, 60;
+  }else if (paramType == "real") {
+    // 偏大
+    k << 10, 11, 8, 5.5, 8, 7;
   }
   std::shared_ptr<MomentumObserverRnea> m_observer(new MomentumObserverRnea(robot, k));
 #endif
@@ -61,7 +64,12 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
     // 偏大
     S1 << 150, 100, 100, 50, 50, 50;
     S2 << 100, 50, 50, 50, 25, 25;
+  } else if (paramType == "real") {
+    // 偏大
+    S1 << 25, 25, 30, 15, 15, 15;
+    S2 << 20, 20, 15, 15, 10, 10;  // 当S2取0时,退化为2阶滑膜控制
   }
+  
   for (int i = 0; i < dof; i++) {
     T1(i) = 2 * sqrt(S1(i));
     T2(i) = 2 * sqrt(S2(i));
@@ -81,6 +89,11 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
     // 偏大
     cutOff = 20;
   }
+   else if (paramType == "real") {
+    // 偏大
+    cutOff = 9;
+  }
+
   std::shared_ptr<FilterDynObserverRnea> fd_observer(new FilterDynObserverRnea(robot, cutOff, timeStep));
 #endif
 
@@ -102,11 +115,20 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
     // 测量噪声越小,表示更相信测量值(在仿真中,测量值不可靠,测量噪声越小,估计噪声越大)
     kalmanR1(0, 0) = kalmanR1(1, 1) = kalmanR1(2, 2) = 1;
     kalmanR1(3, 3) = kalmanR1(4, 4) = kalmanR1(5, 5) = 0.5;
+    } else if (paramType == "real") {
+    // 更相信测量值:噪声
+    // 计算噪声越小表示更相信计算值(在仿真中,计算值更可靠,计算噪声越小,估计噪声越小)
+    //前面６个元素是摩擦力的协方差比较大，越小收敛越快(仿真中没有摩擦力量,所以设置为0)
+    //后面六个元素是外力的扰动协方差,越小收敛越慢
+    kalmanQ1(6, 6) = kalmanQ1(7, 7) = kalmanQ1(8, 8) =  5;
+    kalmanQ1(9, 9) =kalmanQ1(10, 10) = kalmanQ1(11, 11) = 15;
+    // 测量噪声越小,表示更相信测量值(在仿真中,测量值不可靠,测量噪声越小,估计噪声越大)
+    kalmanR1(0, 0) = kalmanR1(1, 1) = kalmanR1(2, 2) = 1;
+    kalmanR1(3, 3) = kalmanR1(4, 4) = kalmanR1(5, 5) = 2;
   } else if (paramType == "small") {
     // 更相信测量值:噪声
     // 计算噪声越小表示更相信计算值(在仿真中,计算值更可靠,计算噪声越小,估计噪声越小)
     //前面６个元素是摩擦力的协方差比较大，越小收敛越快(仿真中没有摩擦力量,所以设置为0)
-    // kalmanQ1(i, i) = 0;
     //后面六个元素是外力的扰动协方差,越小收敛越慢
     kalmanQ1(6, 6) = kalmanQ1(7, 7) = kalmanQ1(8, 8) = kalmanQ1(9, 9) = 10;
     kalmanQ1(10, 10) = kalmanQ1(11, 11) = 50;
@@ -145,10 +167,27 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
     // // 测量噪声越小,表示更相信测量值(在仿真中,测量值不可靠,测量噪声越小,估计噪声越大)
     kalmanR2(0, 0) = kalmanR2(1, 1) = kalmanR2(2, 2) = 0.5;
     kalmanR2(3, 3) = kalmanR2(4, 4) = kalmanR2(5, 5) = 0.1;
-  } else if (paramType == "small") {
+  } else if (paramType == "real") {
+    // 更相信测量值:噪声
+    // 计算噪声越小表示更相信计算值(在仿真中,计算值更可靠,计算噪声越小,估计噪声越小)
+    //前面６个元素是摩擦力的协方差比较大，越小收敛越快(仿真中没有摩擦力量,所以设置为0)
+    //后面六个元素是外力的扰动协方差,越小收敛越慢
+      for (size_t i = 0; i < 6; i++)
+    {
+     kalmanQ2(i, i) = 10;
+    }
+    
+    kalmanQ2(6, 6) = kalmanQ2(7, 7) = kalmanQ2(8, 8) =  6000;
+    kalmanQ2(9, 9) =kalmanQ2(10, 10) = kalmanQ2(11, 11) = 3000;
+    // 测量噪声越小,表示更相信测量值(在仿真中,测量值不可靠,测量噪声越小,估计噪声越大)
+    kalmanR2(0, 0) = kalmanR2(1, 1) = kalmanR2(2, 2) = 0.05;
+    kalmanR2(3, 3) = kalmanR2(4, 4) = kalmanR2(5, 5) = 0.05;
+} 
+  else if (paramType == "small") {
     // 更相信测量值:噪声
     // 计算噪声越小表示更相信计算值(在仿真中,计算值更可靠,计算噪声越小,估计噪声越小)
     // 前面６个元素是摩擦力的协方差比较大，越小收敛越快(仿真中没有摩擦力量,所以设置为0)
+
     // kalmanQ2(i, i) = 0;
     // 后面六个元素是外力的扰动协方差,越小收敛越慢
     kalmanQ2(6, 6) = kalmanQ2(7, 7) = kalmanQ2(8, 8) = 5000;
@@ -167,7 +206,7 @@ std::shared_ptr<ExternalObserverRnea> getObserver(RobotDynamicsRnea* robot, cons
     // 测量噪声越小,表示更相信测量值(在仿真中,测量值不可靠,测量噪声越小,估计噪声越大)
     kalmanR2(0, 0) = kalmanR2(1, 1) = kalmanR2(2, 2) = 5;
     kalmanR2(3, 3) = kalmanR2(4, 4) = kalmanR2(5, 5) = 1;
-  }
+}   
   std::shared_ptr<KalmanObserverZeroOrderRnea> kalman_zero_order_observer(new KalmanObserverZeroOrderRnea(robot, kalmanH2, kalmanS2, kalmanQ2, kalmanR2));
 #endif
   std::vector<std::shared_ptr<ExternalObserverRnea>> observers = {m_observer, d_observer, sm_observer, fd_observer, kalman_observer, kalman_zero_order_observer};

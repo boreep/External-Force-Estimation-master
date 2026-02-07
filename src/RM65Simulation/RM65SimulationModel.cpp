@@ -66,7 +66,7 @@ Matrix RM65::regressorMatrix(Vector &q, Vector &qd,Vector &q2d, double g) {
 
     // 调用生成函数
     // 注意：q.data() 返回的是 const double*，直接传给 C 函数
-    getregressorMatrix(q.data(), qd.data(), q2d.data(), &baseQR_data, phi_raw);
+    getregressorMatrix(q.data(), qd.data(), q2d.data(), &baseQR_data, g , phi_raw);
 
     // 映射为 Eigen 矩阵并返回
     // MATLAB 输出默认是列优先 (ColMajor)，Eigen 默认也是，直接映射即可
@@ -99,11 +99,11 @@ Vector RM65::getFriction(Vector &qd) {
 // 核心封装 3: 逆动力学 (RNEA)
 // =============================================================
 
-Vector RM65::inverseDynamics(Vector &q, Vector &qd, Vector &q2d) {
+Vector RM65::inverseDynamics(Vector &q, Vector &qd, Vector &q2d ,double g ){
     double full_tau[6];
 
     // 调用 RM65_rena，传入 baseQR 和 sol 的指针
-    RM65_rena(q.data(), qd.data(), q2d.data(), &baseQR_data, &sol_data, full_tau);
+    RM65_rena(q.data(), qd.data(), q2d.data(), &baseQR_data, &sol_data, g , full_tau);
     tau_with_fric = Eigen::Map<Vector>(full_tau, 6);
 
     return tau_with_fric;

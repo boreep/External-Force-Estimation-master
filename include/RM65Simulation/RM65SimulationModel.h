@@ -28,7 +28,7 @@ class RM65 : public RobotDynamicsRnea {
   /**
    * @brief 逆动力学实现，继承RobotDynamicsRnea
    */
-  Vector inverseDynamics(Vector &q, Vector &qd, Vector &q2d);
+  Vector inverseDynamics(Vector &q, Vector &qd, Vector &q2d,double g);
   /**
    * @brief friction，继承RobotDynamicsBase
    */
@@ -69,8 +69,8 @@ class RM65 : public RobotDynamicsRnea {
 
   Vector tau, fric, tau_with_fric, baseParmSet1, baseParmSet2;
   Matrix jacobian, forceTransformMatrix;
-  RM65Lib::structbaseQR_T baseQR_data;
-  RM65Lib::structsol_T    sol_data;
+  RM65Lib::struct0_T baseQR_data;
+  RM65Lib::struct1_T    sol_data;
 };
 
 #endif
