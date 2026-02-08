@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
   description.add_options()
       ("help,h", "Help message")
       ("parameterType,p", boost::program_options::value<string>()->default_value("normal"), "parameter type: normal, small or big.")
-      ("inputFile,i", boost::program_options::value<string>()->default_value("q_ga_5_raw_formatted.csv"), "input csv file name")
+      ("inputFile,i", boost::program_options::value<string>()->default_value("joint_data_movej_1_formatted.csv"), "input csv file name")
       ("outputFile,o", boost::program_options::value<string>()->default_value("estimated_force_result.csv"), "output result file name")
       ("observerType,t", boost::program_options::value<int>()->default_value(0), "0:Momentum, 1:Nonlinear, 2:SlidingMode, 3:FilteredDyn, 4/5:Kalman")
       ("startTime,s", boost::program_options::value<double>()->default_value(2.0), "Start time to process (seconds)")
@@ -139,7 +139,12 @@ int main(int argc, char **argv) {
   getline(ifs, line); // 跳过表头
 
   ofstream ofs(outputFilePath);
-  ofs << "time,est_tau1,est_tau2,est_tau3,est_tau4,est_tau5,est_tau6" << endl;
+  // Updated header: time, then 6 columns for each category
+  ofs << "time";
+  for (int i = 1; i <= dof; ++i) ofs << ",est_tau" << i;
+  for (int i = 1; i <= dof; ++i) ofs << ",meas_tau" << i;
+  for (int i = 1; i <= dof; ++i) ofs << ",gt_tau" << i;
+  ofs << endl;
 
   double prev_time = -1.0;
   bool is_first_step = true;
@@ -210,9 +215,18 @@ int main(int argc, char **argv) {
     //   }
     //   current_step++;
 
-      // Save to file
+    // Save to file
       ofs << curr_time;
+      
+      // Column set 1: Estimated External Torque
       for (int i = 0; i < dof; ++i) ofs << "," << tau_ext_est(i);
+      
+      // Column set 2: Measured Torque (Original from CSV, modified by sim if applicable)
+      for (int i = 0; i < dof; ++i) ofs << "," << tau_meas(i);
+      
+      // Column set 3: Ground Truth of injected simulated force
+      for (int i = 0; i < dof; ++i) ofs << "," << tau_sim_truth(i);
+      
       ofs << endl;
 
       // Save for plotting

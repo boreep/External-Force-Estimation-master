@@ -17,7 +17,7 @@
 using namespace std;
 namespace fs = std::filesystem;
 
-// CSV 行解析辅助函数
+// CSV 解析
 vector<string> parseCSVLine(const string &line) {
     vector<string> result;
     stringstream ss(line);
@@ -27,18 +27,13 @@ vector<string> parseCSVLine(const string &line) {
 }
 
 // ============================================================
-// 一阶低通滤波器（速度用）
-// y = (1-a)*y + a*x,  a = dt/(tau+dt), tau = 1/(2*pi*fc)
+// 一阶低通滤波器
 // ============================================================
 class LowPass1st {
 public:
     explicit LowPass1st(double fc_hz = 10.0) : fc(fc_hz), y(0.0), initialized(false) {}
-
-    void reset(double x0) {
-        y = x0;
-        initialized = true;
-    }
-
+    void reset(double x0) { y = x0; initialized = true; }
+    void setFc(double fc_hz) { fc = fc_hz; }
     double update(double x, double dt) {
         if (!initialized) { reset(x); return x; }
         const double tau = 1.0 / (2.0 * M_PI * std::max(1e-6, fc));
@@ -46,294 +41,241 @@ public:
         y = (1.0 - a) * y + a * x;
         return y;
     }
-
 private:
-    double fc;
-    double y;
-    bool initialized;
+    double fc; double y; bool initialized;
 };
 
 int main(int argc, char **argv) {
+    // ---------------------------------------------------------
+    // 参数解析
+    // ---------------------------------------------------------
+    boost::program_options::options_description description("Allowed options");
+    description.add_options()
+        ("help,h", "Help message")
+        ("inputFile,i", boost::program_options::value<string>()->default_value("Traj3_out_formatted.csv"), "input csv")
+        ("outputFile,o", boost::program_options::value<string>()->default_value("test_result.csv"), "output csv")
+        ("startTime,s", boost::program_options::value<double>()->default_value(2.0), "Start time")
+        ("endTime,e", boost::program_options::value<double>()->default_value(30.0), "End time")
+        ("addSimForce,f", boost::program_options::value<bool>()->default_value(true), "Add sim force?")
+        ("simAmp,a", boost::program_options::value<double>()->default_value(5.0), "Sim Amp")
+        ("simFreq,w", boost::program_options::value<double>()->default_value(0.25), "Sim Freq")
+        ("simStart,S", boost::program_options::value<double>()->default_value(5.0), "Sim Start Time")
+        ("velFc", boost::program_options::value<double>()->default_value(10.0), "Velocity LPF Hz")
+        ("measFc", boost::program_options::value<double>()->default_value(30.0), "Torque LPF Hz");
 
-  // ---------------------------------------------------------
-  // 程序参数
-  // ---------------------------------------------------------
-  boost::program_options::options_description description("Allowed options");
-  description.add_options()
-      ("help,h", "Help message")
-      ("parameterType,p", boost::program_options::value<string>()->default_value("normal"), "parameter type: normal, small or big.")
-      ("inputFile,i", boost::program_options::value<string>()->default_value("Traj3_out_formatted.csv"), "input csv file name")
-      ("outputFile,o", boost::program_options::value<string>()->default_value("estimated_force_result.csv"), "output result file name")
-      ("observerType,t", boost::program_options::value<int>()->default_value(0), "0:Momentum, 1:Nonlinear, 2:SlidingMode, 3:FilteredDyn, 4/5:Kalman")
-      ("startTime,s", boost::program_options::value<double>()->default_value(2.0), "Start time to process (seconds)")
-      ("endTime,e", boost::program_options::value<double>()->default_value(30.0), "End time to process (seconds)")
-      // --- 模拟外力参数 ---
-      ("addSimForce,f", boost::program_options::value<bool>()->default_value(true), "Add simulated sinusoidal external force?")
-      ("simAmp,a", boost::program_options::value<double>()->default_value(5.0), "Amplitude of simulated force (Nm)")
-      ("simFreq,w", boost::program_options::value<double>()->default_value(0.25), "Frequency of simulated force (Hz)")
-      ("simStart,S", boost::program_options::value<double>()->default_value(5.0), "Time to START applying simulated force (seconds)")
-      // --- 速度低通参数 ---
-      ("velFc", boost::program_options::value<double>()->default_value(10.0), "Velocity low-pass cutoff frequency (Hz), e.g. 8~15");
+    boost::program_options::variables_map vm;
+    boost::program_options::store(boost::program_options::parse_command_line(argc, argv, description), vm);
+    boost::program_options::notify(vm);
 
-  boost::program_options::variables_map vm;
-  boost::program_options::store(boost::program_options::parse_command_line(argc, argv, description), vm);
-  boost::program_options::notify(vm);
+    if (vm.count("help")) { cout << description << endl; return 0; }
 
-  if (vm.count("help")) {
-    cout << description << endl;
-    return 0;
-  }
+    string inputFileName = vm["inputFile"].as<string>();
+    string outputFileName = vm["outputFile"].as<string>();
+    double startTime = vm["startTime"].as<double>();
+    double endTime = vm["endTime"].as<double>();
+    bool addSimForce = vm["addSimForce"].as<bool>();
+    double simAmp = vm["simAmp"].as<double>();
+    double simFreq = vm["simFreq"].as<double>();
+    double simStartTime = vm["simStart"].as<double>();
+    double velFc = vm["velFc"].as<double>();
+    double measFc = vm["measFc"].as<double>();
 
-  string inputFileName   = vm["inputFile"].as<string>();
-  string outputFileName  = vm["outputFile"].as<string>();
-  string parameterType   = vm["parameterType"].as<string>();
-  int observerType       = vm["observerType"].as<int>();
-  double startTime       = vm["startTime"].as<double>();
-  double endTime         = vm["endTime"].as<double>();
+    // 路径处理 (根据你的实际情况调整)
+    fs::path projectRoot = fs::path(__FILE__).parent_path().parent_path(); 
+    fs::path inputFilePath = projectRoot / "rmrobot" / inputFileName;
+    fs::path outputFilePath = projectRoot / "rmrobot" / "output" / outputFileName;
+    
+    // 简单的 dt 预读
+    ifstream ifs_pre(inputFilePath);
+    if(!ifs_pre.is_open()) { cerr << "Error: " << inputFilePath << " not found." << endl; return -1; }
+    string line; getline(ifs_pre, line);
+    double t0=0, t1=0.005;
+    if(getline(ifs_pre, line)) t0=stod(parseCSVLine(line)[0]);
+    if(getline(ifs_pre, line)) t1=stod(parseCSVLine(line)[0]);
+    double nominalDt = (t1-t0 > 0) ? (t1-t0) : 0.005;
+    ifs_pre.close();
 
-  bool addSimForce        = vm["addSimForce"].as<bool>();
-  double simAmp           = vm["simAmp"].as<double>();
-  double simFreq          = vm["simFreq"].as<double>();
-  double simStartTime     = vm["simStart"].as<double>();
+    // ---------------------------------------------------------
+    // 初始化
+    // ---------------------------------------------------------
+    RM65 rm65Robot;
+    auto observer = getObserver(&rm65Robot, 5, nominalDt, "real");
+    DynamicThresholdDetector thresholdDetector(&rm65Robot); // 这里会自动加载你改好的 .h 里的 params
 
-  double velFc            = vm["velFc"].as<double>();
+    int dof = rm65Robot.jointNo();
+    Vector q(dof), qd_raw(dof), qd_smooth(dof), qdd_est(dof);
+    Vector tau_meas_raw(dof), tau_meas_smooth(dof);
+    Vector tau_ext_est(dof), current_thresholds(dof), tau_sim_truth(dof);
+    vector<bool> collision_flags(dof);
+    
+    Vector zero_vec = Vector::Zero(dof);
+    Vector prev_qd_smooth = Vector::Zero(dof);
 
-  // ---------------------------------------------------------
-  // 路径与文件初始化
-  // ---------------------------------------------------------
-  fs::path srcPath = fs::path(__FILE__).parent_path();
-  fs::path projectRoot = srcPath.parent_path();
-  fs::path inputDir = projectRoot / "rmrobot";
-  fs::path outputDir = inputDir / "output";
-  fs::path inputFilePath = inputDir / inputFileName;
-  fs::path outputFilePath = outputDir / outputFileName;
+    // === 新增：手动阈值偏置 (Manual Safety Margin) ===
+    // 这里的值单位是 Nm，你可以针对每个关节单独调整
+    // 经验法则：基座关节(1-3)通常噪音大，给大点；末端关节(4-6)给小点
+    Vector manual_offsets(dof);
+    manual_offsets << 0.0,  // Joint 1: 加大 3.0 Nm
+                      0.0,  // Joint 2: 加大 3.0 Nm
+                      0.0,  // Joint 3: 加大 2.5 Nm
+                      0.0,  // Joint 4: 加大 1.0 Nm
+                      0.0,  // Joint 5: 加大 1.0 Nm
+                      0.0;  // Joint 6: 加大 1.0 Nm
 
-  cout << "Project Root: " << projectRoot << endl;
-  cout << "Input File:   " << inputFilePath << endl;
-  cout << "Output File:  " << outputFilePath << endl;
-  cout << "Vel LPF fc:   " << velFc << " Hz" << endl;
+    // 如果你想按比例放大（例如整体放大 1.2 倍），也可以定义一个系数
+    double safety_scale = 1.1;
 
-  if(addSimForce) {
-      cout << "=== SIMULATION MODE ===" << endl;
-      cout << "Injecting Sine Wave: Amp=" << simAmp << "Nm, Freq=" << simFreq << "Hz" << endl;
-      cout << "Force Starts at: t=" << simStartTime << "s" << endl;
-  }
 
-  if (!fs::exists(outputDir)) fs::create_directories(outputDir);
+    vector<LowPass1st> vel_filters, meas_filters;
+    for(int i=0; i<dof; i++) {
+        vel_filters.emplace_back(velFc);
+        meas_filters.emplace_back(measFc);
+    }
 
-  // ---------------------------------------------------------
-  // 预读 dt
-  // ---------------------------------------------------------
-  ifstream ifs_pre(inputFilePath);
-  if (!ifs_pre.is_open()) { cerr << "Error: Cannot open input file!" << endl; return -1; }
-  string line;
-  getline(ifs_pre, line);
-  double t0 = 0, t1 = 0.005;
-  bool dt_detected = false;
-  if (getline(ifs_pre, line)) t0 = stod(parseCSVLine(line)[0]);
-  if (getline(ifs_pre, line)) { t1 = stod(parseCSVLine(line)[0]); dt_detected = true; }
-  ifs_pre.close();
-  double nominalDt = dt_detected ? (t1 - t0) : 0.005;
-  if(nominalDt <= 0) nominalDt = 0.005;
+    // 绘图数据
+    vector<vector<tuple<double, double>>> plot_tau_est(dof), plot_thresh(dof), plot_truth(dof);
 
-  cout << "Nominal dt:   " << nominalDt << " s" << endl;
-
-  // ---------------------------------------------------------
-  // 对象初始化
-  // ---------------------------------------------------------
-  RM65 rm65Robot;
-  std::shared_ptr<ExternalObserverRnea> observer = getObserver(&rm65Robot, observerType, nominalDt, parameterType);
-  DynamicThresholdDetector thresholdDetector(&rm65Robot);
-
-  const int dof = rm65Robot.jointNo();
-  Vector q(dof), qd_raw(dof), qd_smooth(dof), tau_meas(dof), tau_ext_est(dof);
-  Vector tau_sim_truth(dof);
-  Vector current_thresholds(dof);
-  vector<bool> collision_flags(dof);
-
-  Vector zero_vec = Vector::Zero(dof);
-
-  // 速度滤波器：每关节一个
-  vector<LowPass1st> vel_filters;
-  vel_filters.reserve(dof);
-  for(int i=0; i<dof; i++) vel_filters.emplace_back(velFc);
-
-  // 绘图容器
-  vector<vector<tuple<double, double>>> plot_tau_est(dof);
-  vector<vector<tuple<double, double>>> plot_tau_sim_gt(dof);
-  vector<vector<tuple<double, double>>> plot_thresh_upper(dof);
-  vector<vector<tuple<double, double>>> plot_thresh_lower(dof);
-
-  // 你之前的手动偏置保留（可选）
-  Vector threshold_offsets(dof);
-  threshold_offsets << 3.0, 3.0, 1.0, 1.0, 1.5, 0.5;
-
-  // ---------------------------------------------------------
-  // 主循环
-  // ---------------------------------------------------------
-  ifstream ifs(inputFilePath);
-  if (!ifs.is_open()) { cerr << "Error: Cannot open input file!" << endl; return -1; }
-
-  getline(ifs, line); // 跳过表头
-  ofstream ofs(outputFilePath);
-
-    ofs << "time,"
-        << "est_tau1,est_tau2,est_tau3,est_tau4,est_tau5,est_tau6,"
-        << "thr1,thr2,thr3,thr4,thr5,thr6,"
-        << "truth_tau1,truth_tau2,truth_tau3,truth_tau4,truth_tau5,truth_tau6"
-        << endl;
-
-  double prev_time = -1.0;
-  bool is_first_step = true;
-  int valid_lines_count = 0;
-
-  while (getline(ifs, line)) {
-      vector<string> cols = parseCSVLine(line);
-      if (cols.size() < 25) continue;
-
-      double curr_time = stod(cols[0]);
-      if (curr_time < startTime) continue;
-      if (curr_time > endTime) break;
-
-      for (int i = 0; i < dof; ++i) {
-          q(i)        = stod(cols[1 + i]);
-          qd_raw(i)   = stod(cols[7 + i]);   // 原始速度
-          tau_meas(i) = stod(cols[19 + i]);
-      }
-
-      // 模拟外力注入（与你原来一致）
-      tau_sim_truth.setZero();
-      if (addSimForce && curr_time >= simStartTime) {
-          for (int i = 0; i < dof; ++i) {
-              double ampMultiplier = 1.0;
-              if (i < 2) ampMultiplier = 3.0;
-              else if (i == 2) ampMultiplier = 2.0;
-
-              double currentJointAmp = simAmp * ampMultiplier;
-              double sim_val = currentJointAmp * sin(2.0 * M_PI * simFreq * (curr_time - simStartTime));
-
-              tau_sim_truth(i) = sim_val;
-              tau_meas(i) -= sim_val;  // 你原来的写法：把外力从测量里“扣掉”
-          }
-      }
-
-      // dt
-      double dt = nominalDt;
-      if (!is_first_step) {
-          dt = curr_time - prev_time;
-          if (dt <= 0 || dt > 0.1) dt = nominalDt;
-      }
-
-      // ========================================================
-      // 速度低通滤波：qd_raw -> qd_smooth
-      // ========================================================
-      if (is_first_step) {
-          qd_smooth = qd_raw;
-          for (int i = 0; i < dof; i++) vel_filters[i].reset(qd_raw(i));
-      } else {
-          for (int i = 0; i < dof; i++) qd_smooth(i) = vel_filters[i].update(qd_raw(i), dt);
-      }
-
-      // --------------------------------------------------------
-      // 1) 观测器残差：使用 qd_smooth
-      // --------------------------------------------------------
-      tau_ext_est = observer->getExternalTorque(q, qd_smooth, tau_meas, dt);
-
-      // --------------------------------------------------------
-      // 2) 动态阈值（新方法：不含惯性项 + 摩擦正负拆分）
-      //    tau_c / tau_f 用 qd_smooth，tau_g 用 q
-      // --------------------------------------------------------
-      Vector tau_c = rm65Robot.rnea(q, qd_smooth, zero_vec, 0.0);
-      Vector tau_g = rm65Robot.rnea(q, zero_vec,  zero_vec, 9.8);
-      Vector tau_f = rm65Robot.getFriction(qd_smooth);
-
-      current_thresholds = thresholdDetector.compute_thresholds(tau_c, tau_g, tau_f);
-
-      // --- 可选：你原来的手动调整保留 ---
-      current_thresholds = current_thresholds * 1.2;
-      current_thresholds += threshold_offsets;
-
-      // --------------------------------------------------------
-      // 3) 碰撞检测
-      // --------------------------------------------------------
-      thresholdDetector.check_collision(tau_ext_est, current_thresholds, collision_flags);
-
-      // 保存
-    ofs << curr_time;
-    for (int i = 0; i < dof; ++i) ofs << "," << tau_ext_est(i);
-    for (int i = 0; i < dof; ++i) ofs << "," << current_thresholds(i);
-    for (int i = 0; i < dof; ++i) ofs << "," << tau_sim_truth(i);   // 新增
+    ifstream ifs(inputFilePath);
+    getline(ifs, line); // header
+    ofstream ofs(outputFilePath);
+    ofs << "time";
+    for(int i=0; i<dof; i++) ofs << ",est_" << i;
+    for(int i=0; i<dof; i++) ofs << ",thr_" << i;
+    for(int i=0; i<dof; i++) ofs << ",truth_" << i;
     ofs << endl;
 
-      // 绘图数据
-      for (int i = 0; i < dof; ++i) {
-          plot_tau_est[i].push_back(make_tuple(curr_time, tau_ext_est(i)));
-          plot_thresh_upper[i].push_back(make_tuple(curr_time, current_thresholds(i)));
-          plot_thresh_lower[i].push_back(make_tuple(curr_time, -current_thresholds(i)));
-          if (addSimForce) plot_tau_sim_gt[i].push_back(make_tuple(curr_time, tau_sim_truth(i)));
-      }
+    double prev_time = -1.0;
+    bool is_first_step = true;
 
-      prev_time = curr_time;
-      is_first_step = false;
-      valid_lines_count++;
-  }
+    cout << "Processing... dt=" << nominalDt << ", velFc=" << velFc << endl;
 
-  ifs.close();
-  ofs.close();
+    while(getline(ifs, line)) {
+        vector<string> cols = parseCSVLine(line);
+        if(cols.size() < 25) continue;
+        double t = stod(cols[0]);
+        if(t < startTime) continue;
+        if(t > endTime) break;
 
-  if (valid_lines_count == 0) {
-      cerr << "[Error] No valid data points found." << endl;
-      return -1;
-  }
+        for(int i=0; i<dof; i++) {
+            q(i) = stod(cols[1+i]);
+            qd_raw(i) = stod(cols[7+i]);
+            tau_meas_raw(i) = stod(cols[19+i]);
+        }
 
-  // ---------------------------------------------------------
-  // Gnuplot 可视化
-  // ---------------------------------------------------------
-  Gnuplot gp;
-  gp << "set term qt size 1800, 1000 title 'RM65 Dynamic Threshold Test (Velocity LPF)'\n";
-  gp << "set multiplot layout 2,3 title 'Sim Force Starts at " << simStartTime << "s'\n";
-  gp << "set grid\n";
-  gp << "set xrange [" << startTime << ":" << endTime << "]\n";
+        // 模拟外力
+        tau_sim_truth.setZero();
+        if(addSimForce && t >= simStartTime) {
+            for(int i=0; i<dof; i++) {
+                double amp = (i<2)? 3.0 : (i==2? 2.0 : 1.0);
+                double val = simAmp * amp * sin(2*M_PI*simFreq*(t - simStartTime));
+                tau_sim_truth(i) = val;
+                tau_meas_raw(i) -= val; // 扣除真值，测试能否还原
+            }
+        }
 
-  auto get_max_abs = [](const vector<tuple<double, double>>& data) -> double {
-      double max_val = 0.0;
-      for (const auto& item : data) {
-          double val = std::abs(get<1>(item));
-          if (val > max_val) max_val = val;
-      }
-      return max_val;
-  };
+        double dt = nominalDt;
+        if(!is_first_step) {
+            dt = t - prev_time;
+            if(dt <= 1e-5 || dt > 0.1) dt = nominalDt;
+        }
 
-  for (int i = 0; i < dof; ++i) {
-      double max_y = get_max_abs(plot_tau_est[i]);
-      max_y = std::max(max_y, get_max_abs(plot_thresh_upper[i]));
-      if (addSimForce) max_y = std::max(max_y, get_max_abs(plot_tau_sim_gt[i]));
-      max_y = (max_y == 0 ? 1.0 : max_y * 1.5);
+        // === 核心信号处理 ===
+        if(is_first_step) {
+            qd_smooth = qd_raw;
+            tau_meas_smooth = tau_meas_raw;
+            qdd_est.setZero();
+            for(int i=0; i<dof; i++) {
+                vel_filters[i].reset(qd_raw(i));
+                meas_filters[i].reset(tau_meas_raw(i));
+            }
+        } else {
+            for(int i=0; i<dof; i++) {
+                qd_smooth(i) = vel_filters[i].update(qd_raw(i), dt);
+                tau_meas_smooth(i) = meas_filters[i].update(tau_meas_raw(i), dt);
+            }
+            // 计算加速度 (与 Data_Gen.cpp 保持一致)
+            qdd_est = (qd_smooth - prev_qd_smooth) / dt;
+        }
+        prev_qd_smooth = qd_smooth;
 
-      gp << "set title 'Joint " << (i + 1) << "'\n";
-      gp << "set xlabel 'Time (s)'\n";
-      gp << "set ylabel 'Torque (Nm)'\n";
-      gp << "set yrange [" << -max_y << ":" << max_y << "]\n";
+        // 1. 观测器
+        tau_ext_est = observer->getExternalTorque(q, qd_smooth, tau_meas_smooth, dt);
 
-      gp << "plot ";
-      gp << "'-' with lines title '+Threshold' lc rgb 'blue' dt 2 lw 2, ";
-      gp << "'-' with lines title '-Threshold' lc rgb 'blue' dt 2 lw 2, ";
-      if (addSimForce) {
-          gp << "'-' with lines title 'Truth' lc rgb 'black' dt 4 lw 1, ";
-      }
-      gp << "'-' with lines title 'Est. Force' lc rgb 'red' lw 2\n";
+        // 2. 动力学项计算
+        Vector tau_m = rm65Robot.rnea(q, zero_vec, qdd_est, 0.0); // 惯性项 (关键!)
+        Vector tau_c = rm65Robot.rnea(q, qd_smooth, zero_vec, 0.0);
+        Vector tau_g = rm65Robot.rnea(q, zero_vec, zero_vec, 9.81);
+        Vector tau_f = rm65Robot.getFriction(qd_smooth);
 
-      gp.send1d(plot_thresh_upper[i]);
-      gp.send1d(plot_thresh_lower[i]);
-      if (addSimForce) gp.send1d(plot_tau_sim_gt[i]);
-      gp.send1d(plot_tau_est[i]);
-  }
+        // 3. 动态阈值 (现在传入 4 个参数)
+        current_thresholds = thresholdDetector.compute_thresholds(tau_m, tau_c, tau_g, tau_f);
 
-  gp << "unset multiplot\n";
+        // === 新增：应用手动调整 ===
+        for(int i = 0; i < dof; i++) {
+            // 方式 A: 叠加常数 (推荐，适合消除底噪)
+            current_thresholds(i) = current_thresholds(i) + manual_offsets(i);
+            
+            // 方式 B: 比例放大 (可选，适合应对高速动态误差)
+            // current_thresholds(i) = current_thresholds(i) * 1.2; 
+        }
 
-  cout << "Validation finished." << endl;
-  cout << "Press Enter to exit..." << endl;
-  cin.get();
+        // 4. 碰撞检测
+        thresholdDetector.check_collision(tau_ext_est, current_thresholds, collision_flags);
 
-  return 0;
+        // 保存与绘图
+        ofs << t;
+        for(int i=0; i<dof; i++) ofs << "," << tau_ext_est(i);
+        for(int i=0; i<dof; i++) ofs << "," << current_thresholds(i);
+        for(int i=0; i<dof; i++) ofs << "," << tau_sim_truth(i);
+        ofs << endl;
+
+        for(int i=0; i<dof; i++) {
+            plot_tau_est[i].push_back(make_tuple(t, tau_ext_est(i)));
+            plot_thresh[i].push_back(make_tuple(t, current_thresholds(i)));
+            if(addSimForce) plot_truth[i].push_back(make_tuple(t, tau_sim_truth(i)));
+        }
+
+        prev_time = t;
+        is_first_step = false;
+    }
+    ifs.close(); ofs.close();
+
+    // ---------------------------------------------------------
+    // 绘图
+    // ---------------------------------------------------------
+    Gnuplot gp;
+    gp << "set term qt size 1600, 900 title 'Final Validation'\n";
+    gp << "set multiplot layout 2,3\n";
+    gp << "set grid\n";
+    
+    auto get_lim = [](const vector<tuple<double, double>>& v) {
+        double m = 0; for(auto& t:v) m=max(m, abs(get<1>(t))); return m;
+    };
+
+    for(int i=0; i<dof; i++) {
+        double lim = max(get_lim(plot_tau_est[i]), get_lim(plot_thresh[i]));
+        lim = (lim<1.0)? 2.0 : lim * 1.5;
+
+        gp << "set title 'Joint " << i+1 << "'\n";
+        gp << "set yrange [" << -lim << ":" << lim << "]\n";
+        gp << "plot '-' w l t 'Thresh' lc 'blue' dt 2, "
+           << "'-' w l notitle lc 'blue' dt 2, ";
+        if(addSimForce) gp << "'-' w l t 'Truth' lc 'black' dt 1, ";
+        gp << "'-' w l t 'Est' lc 'red' lw 2\n";
+
+        gp.send1d(plot_thresh[i]); // 上界
+        // 构造下界
+        vector<tuple<double,double>> lower;
+        for(auto& p: plot_thresh[i]) lower.push_back(make_tuple(get<0>(p), -get<1>(p)));
+        gp.send1d(lower);
+        
+        if(addSimForce) gp.send1d(plot_truth[i]);
+        gp.send1d(plot_tau_est[i]);
+    }
+    gp << "unset multiplot\n";
+    
+    cout << "Done. Press Enter." << endl;
+    cin.get();
+
+    return 0;
 }

@@ -4,7 +4,7 @@ import sys
 import os
 
 # ================= 配置 =================
-CSV_FILE = 'rmrobot/Traj3_out_formatted_filtered.csv'  # 请修改为你的实际文件名
+CSV_FILE = 'rmrobot/trajdata/q_ga_1_4_out.csv'  # 请修改为你的实际文件名
 # =======================================
 
 def plot_raw_data():
