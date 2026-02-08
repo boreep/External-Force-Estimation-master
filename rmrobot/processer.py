@@ -52,9 +52,9 @@ def format_raw_with_torque_conversion(input_file, output_file):
 
 if __name__ == "__main__":
     # 输入文件路径
-    input_csv = 'rmrobot/joint_data_movej_1_2.csv'
+    input_csv = 'rmrobot/trajdata/q_ga_1_4_out.csv'
     # 输出文件路径 (例如命名为 raw_formatted.csv)
-    output_csv = 'rmrobot/joint_data_movej_1_2_formatted.csv'
+    output_csv = 'rmrobot/q_ga_1_4_out_formatted.csv'
     
     if os.path.exists(input_csv):
         format_raw_with_torque_conversion(input_csv, output_csv)

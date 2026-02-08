@@ -65,7 +65,7 @@ file(GLOB RM65_DIR_SRCS "${RM65_SRC_DIR}/*.cpp")
 
 set(RM65_SOURCES
     ${OBSERVER_LIB_SOURCES}
-    src/RM65_Test.cpp
+    src/RM65_Test_final.cpp
     ${RM65_DIR_SRCS})
 
 # 添加 RM65 测试可执行文件
