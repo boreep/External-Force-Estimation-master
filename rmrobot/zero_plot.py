@@ -4,7 +4,7 @@ import sys
 import os
 
 # ================= 配置 =================
-CSV_FILE = 'rmrobot/q_ga_5_raw_formatted.csv'  # 请修改为你的实际文件名
+CSV_FILE = 'rmrobot/Traj3_out_formatted_filtered.csv'  # 请修改为你的实际文件名
 # =======================================
 
 def plot_raw_data():
@@ -34,7 +34,8 @@ def plot_raw_data():
         'Position (pos_*)': 'pos',
         'Velocity (vel_*)': 'vel',
         'acclerrate (cur_*)': 'acc',
-        'Force/Torque (force_*)': 'torque'
+        'Force/Torque (force_*)': 'torque',
+        'testa(res_*)':'res'
     }
 
     # 筛选出当前 CSV 中实际存在的组
