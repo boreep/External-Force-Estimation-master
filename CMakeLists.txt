@@ -103,28 +103,3 @@ target_include_directories(RM65_Verification PUBLIC
 
 # 链接 boost 和 gnuplot
 target_link_libraries(RM65_Verification PUBLIC Boost::program_options gnuplot_iostream)
-
-# =========================================================
-# 4. 新增 RM65 阈值数据生成器 (Threshold Data Gen)
-# =========================================================
-
-# 定义源文件集合：主程序 + RM65库 + 观测器库
-set(RM65_DATA_GEN_SOURCES
-    src/RM65_Threshold_Data_Gen.cpp
-    ${RM65_DIR_SRCS}       # 包含 RM65Simulation 下的所有 cpp
-    ${OBSERVER_LIB_SOURCES} # 包含观测器算法
-)
-
-# 添加可执行文件
-add_executable(RM65_Threshold_Data_Gen ${RM65_DATA_GEN_SOURCES})
-
-# 配置头文件路径 (与 RM65_Test 保持一致)
-target_include_directories(RM65_Threshold_Data_Gen PUBLIC 
-    ${ExtObserverLibInclude} 
-    ${RM65_INCLUDE_DIR}
-    PUBLIC include 
-    PUBLIC ${EIGEN3_INCLUDE_DIRS}
-)
-
-# 链接依赖库
-target_link_libraries(RM65_Threshold_Data_Gen PUBLIC Boost::program_options gnuplot_iostream)
